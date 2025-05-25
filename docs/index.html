@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Automating AWS Glue Deployment at Scale</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    body {
+      font-family: system-ui, sans-serif;
+      margin: 2rem;
+      line-height: 1.6;
+      max-width: 900px;
+    }
+    h1, h2 {
+      color: #2c3e50;
+    }
+    img {
+      max-width: 100%;
+      margin: 1rem 0;
+      border: 1px solid #ccc;
+    }
+    figcaption {
+      font-size: 0.9rem;
+      color: #555;
+      margin-bottom: 2rem;
+    }
+    code {
+      background: #f4f4f4;
+      padding: 0.2rem 0.4rem;
+      border-radius: 3px;
+    }
+  </style>
+</head>
+<body>
+
+  <h1>🚀 Automating AWS Glue Deployment at Scale</h1>
+  <p><em>Designing a CI/CD-driven ETL platform for enterprise analytics (2020–2021)</em></p>
+
+  <h2>Introduction</h2>
+  <p>
+    In 2020 and 2021, I led the design and implementation of a custom deployment framework for <strong>AWS Glue</strong> 
+    as part of Spencer Stuart’s Performance Warehouse (PW) project. At the time, AWS offered limited native support for 
+    continuous delivery of Glue jobs. I wanted to change how our data engineering teams worked—freeing them from manual 
+    deployment steps, enabling isolated testing environments, and allowing them to focus on building value rather than 
+    fighting infrastructure.
+  </p>
+  <p>
+    This post describes how we built a Glue deployment pipeline using <strong>TeamCity</strong>, 
+    <strong>Octopus Deploy</strong>, and <strong>CloudFormation</strong>, and how that framework enabled us to deliver 
+    complex, multi-stage ETL pipelines with confidence and speed.
+  </p>
+
+  <h2>The Challenge</h2>
+  <p>
+    We were orchestrating a multi-layered ETL system that pulled data from platforms like SQL Server, Workday, and Quest 
+    into Redshift through a series of transformations managed by AWS Glue. With more than a dozen stages in the pipeline—
+    ranging from raw data ingestion to dimensional modeling—manual deployment wasn’t sustainable.
+  </p>
+  <p>
+    The development team needed a way to test changes safely without impacting other environments. We also had to manage 
+    deployments across a matrix of tenants: development, QA, training, and production, each requiring strict data separation 
+    and orchestration logic.
+  </p>
+  <p>
+    Our goal was clear: create a fully automated, environment-aware deployment system for Glue jobs that supported isolated 
+    feature testing, semantic versioning, and reproducibility across environments. And it had to scale.
+  </p>
+
+  <h2>Building the Framework</h2>
+  <p>
+    Our CI/CD pipeline began with Git. Developers committed code to feature branches, and every push automatically triggered 
+    a TeamCity build. That build would run unit tests, lint IAM policies and YAML files, tag the release semantically, and 
+    package the artifacts for Octopus Deploy and ProGet. Once complete, the build handed off to Octopus for environment deployment.
+  </p>
+  <p>
+    Behind the scenes, the Octopus server used a PowerShell script to copy the Glue scripts into an S3 artifact bucket. It then 
+    deployed a CloudFormation stack, passing in the correct IAM roles and configuration to ensure only the required resources 
+    were provisioned.
+  </p>
+  <p>
+    CloudFormation stacks were the backbone of this process. Each one encapsulated everything needed to deploy a Glue job or 
+    workflow: the job definition, the scheduling triggers, the associated SSM parameters for configuration, and the tagging 
+    needed for cost tracking and resource governance. By keeping each deployment self-contained and declarative, we ensured 
+    consistency across environments and simplified rollback if needed.
+  </p>
+
+  <img src="assets/artefacts-provisioning.png" alt="CI/CD Pipeline Diagram">
+  <figcaption>Figure 1 – High-level CI/CD flow from Git to Glue via TeamCity and Octopus</figcaption>
+
+  <h2>Feature Environments and Developer Productivity</h2>
+  <p>
+    A key innovation was our use of <strong>feature-specific environments</strong>, which allowed developers to test ETL logic 
+    in isolation. When a developer began work on a ticket—for example, <code>PW-5496</code>—they could initiate the creation 
+    of a dedicated environment. This cloned the current <code>develop</code> branch, spun up a Redshift schema named after the 
+    ticket, loaded relevant data from S3, and deployed a complete set of Glue and Spark jobs, all uniquely named and tagged 
+    to avoid collisions.
+  </p>
+  <p>
+    This process allowed engineers to iterate safely and see the full end-to-end impact of their changes without interfering 
+    with shared dev or QA environments. It also ensured that any configuration or job state was tied to the appropriate 
+    environment. Jobs could be resumed or debugged without ambiguity, and promotion to production followed a clear path 
+    through testing and governance.
+  </p>
+  <p>
+    Each feature environment took approximately two hours to provision, largely due to the deployment time required for Glue jobs. 
+    But the payoff was huge: complete confidence in the behavior of a new job before it reached master.
+  </p>
+
+  <h2>Tenancy, Isolation, and Complexity Management</h2>
+  <p>
+    One of the core challenges in a system like this is maintaining proper separation of data and compute resources across environments. 
+    For example, our training environment needed production-like data, but without accessing the actual production tenants of upstream systems. 
+    ETL jobs needed to “know” what environment they were operating in—both for sourcing input data and for resuming partially completed 
+    jobs without cross-contamination.
+  </p>
+  <p>
+    We handled this by parameterizing all Glue jobs with tenancy and environment metadata, managed through SSM. Job names, Redshift schemas, 
+    and even S3 paths were generated based on environment context. In this way, the same job code could run across any environment simply 
+    by passing in the correct configuration.
+  </p>
+  <p>
+    Crucially, this logic wasn’t duplicated in every job. Instead, we centralized orchestration patterns, so tenancy awareness was built once 
+    and reused everywhere. That decision significantly reduced maintenance burden and made the system easier to extend as we added more jobs 
+    and more data sources.
+  </p>
+
+  <h2>Governance and Production Controls</h2>
+  <p>
+    To maintain production stability, we implemented strict gating mechanisms. No developer had IAM permission to deploy directly. 
+    All deployments were routed through Octopus, with production deployments requiring an RFC and approval by a Release Manager. 
+    This separation of duties gave us a clean audit trail and reinforced confidence in the release process.
+  </p>
+  <p>
+    Each sprint concluded with a release management meeting, during which we reviewed changes tagged for production. Deployments 
+    to training occurred early in the week, giving us time to verify integration before production rollout mid-week.
+  </p>
+
+  <h2>What I’d Do Differently Today</h2>
+  <p>
+    If I were building this system today, several new tools could simplify or even replace parts of the architecture.
+  </p>
+  <p>
+    <strong>AWS CDK</strong> offers a more maintainable alternative to raw CloudFormation. Glue Studio now supports job versioning 
+    and has improved support for orchestration workflows. <strong>GitHub Actions</strong> or <strong>GitLab CI</strong> could replace 
+    TeamCity for many organizations, providing tighter integration with source control. And <strong>Terraform</strong>—with its mature 
+    AWS provider—could simplify stack definitions and reduce some of the deployment overhead.
+  </p>
+  <p>
+    That said, in 2020 and 2021, these options were either immature or unavailable. What we built solved the right problem at the right time, 
+    and it did so in a way that scaled well and empowered our developers to move quickly without compromising safety or traceability.
+  </p>
+
+  <h2>Conclusion</h2>
+  <p>
+    This project taught me a lot about the intersection of data engineering, infrastructure-as-code, and developer enablement. 
+    By designing a deployment framework around Glue that put automation and environment isolation at the center, we turned what was 
+    once a fragile and manual process into something scalable, auditable, and developer-friendly.
+  </p>
+  <p>
+    For teams working with AWS Glue today, I’d encourage building with the same principles—even if the toolchain looks different now. 
+    The underlying goal remains the same: let developers focus on delivering insight, not wrestling with infrastructure.
+  </p>
+
+</body>
+</html>
