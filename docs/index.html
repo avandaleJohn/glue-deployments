@@ -76,22 +76,47 @@
   </p>
 
   <h2>Building the Framework</h2>
-  <p>
-    Our CI/CD pipeline began with Git. Developers committed code to feature branches, and every push automatically triggered 
-    a TeamCity build. That build would run unit tests, lint IAM policies and YAML files, tag the release semantically, and 
-    package the artifacts for Octopus Deploy and ProGet. Once complete, the build handed off to Octopus for environment deployment.
-  </p>
-  <p>
-    Behind the scenes, the Octopus server used a PowerShell script to copy the Glue scripts into an S3 artifact bucket. It then 
-    deployed a CloudFormation stack, passing in the correct IAM roles and configuration to ensure only the required resources 
-    were provisioned.
-  </p>
-  <p>
-    CloudFormation stacks were the backbone of this process. Each one encapsulated everything needed to deploy a Glue job or 
-    workflow: the job definition, the scheduling triggers, the associated SSM parameters for configuration, and the tagging 
-    needed for cost tracking and resource governance. By keeping each deployment self-contained and declarative, we ensured 
-    consistency across environments and simplified rollback if needed.
-  </p>
+<p>
+  When I came onto the project, one of the biggest technical challenges we faced was the scale at which we were adopting AWS Glue. 
+  We were among the first organizations to use Glue heavily in production, and the scale quickly became daunting. 
+  Our architecture required us to manage approximately <strong>150 Glue jobs per environment</strong> across <strong>development, test, and production</strong>. 
+  This meant that, at any point in time, we were handling roughly <strong>450 active Glue job deployments</strong> through our CI/CD pipeline.
+</p>
+<p>
+  To make matters more complex, at the time, AWS Glue was very much console-driven, and creating or modifying a single Glue job 
+  manually could take a developer upwards of four hours. That pace simply wasn’t compatible with the iterative nature of agile delivery 
+  or the demands of a growing analytics platform. My focus quickly became: <em>how do we make Glue development faster, safer, and more scalable?</em>
+</p>
+<p>
+  The solution was to build a structured, script-driven framework that abstracted away the complexity of job creation and deployment. 
+  We introduced a templated <strong>manifest-based system</strong> where developers could declare the name of their Glue job and a few key parameters 
+  (such as wheel files or runtime arguments) in a manifest file. These manifests were version-controlled, and each job could be 
+  categorized automatically based on naming conventions—whether it was an <strong>extract</strong>, <strong>transform</strong>, or <strong>load</strong> step—and further 
+  sorted into subcategories as needed.
+</p>
+<p>
+  The manifest-driven approach was a game-changer. Instead of hand-building Glue jobs through the AWS Console, 
+  developers now simply updated a manifest file and committed it to source control. Our CI/CD pipeline, orchestrated by TeamCity and 
+  Octopus Deploy, picked up the changes and provisioned the jobs automatically using CloudFormation. This meant that the only 
+  thing developers needed to concern themselves with was writing quality ETL logic—the deployment and environment consistency 
+  were handled entirely by automation.
+</p>
+<p>
+  Our CI/CD pipeline began with Git. Developers committed code to feature branches, and every push automatically triggered a TeamCity build. 
+  That build would run unit tests, lint IAM policies and YAML files, tag the release semantically, and package the artifacts for Octopus Deploy 
+  and ProGet. Once complete, the build handed off to Octopus for environment deployment.
+</p>
+<p>
+  Behind the scenes, the Octopus server used a PowerShell script to copy the Glue scripts into an S3 artifact bucket. It then deployed a 
+  CloudFormation stack, passing in the correct IAM roles and configuration to ensure only the required resources were provisioned.
+</p>
+<p>
+  CloudFormation stacks were the backbone of this process. Each one encapsulated everything needed to deploy a Glue job or workflow: 
+  the job definition, the scheduling triggers, the associated SSM parameters for configuration, and the tagging needed for cost tracking 
+  and resource governance. By keeping each deployment self-contained and declarative, we ensured consistency across environments and 
+  simplified rollback if needed.
+</p>
+
 
   <img src="assets/artefacts-provisioning.png" alt="CI/CD Pipeline Diagram">
   <figcaption>Figure 1 – High-level CI/CD flow from Git to Glue via TeamCity and Octopus that I drew in 2020</figcaption>
